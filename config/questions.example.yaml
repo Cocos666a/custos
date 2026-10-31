@@ -1,0 +1,125 @@
+# custos question bank (YAML)
+#
+# Copy this file to your config directory as `questions.yaml` and edit it.
+# The bank is the intelligence check run against a freshly started session: if
+# the session cannot answer a question it has almost certainly seen before, it
+# is not a healthy place to continue working.
+#
+# Fields
+#   id       short stable identifier, used in logs and in the ledger
+#   prompt   the exact text sent to the session
+#   answer   the expected answer (compare rules depend on `match`)
+#   match    how the reply is graded: exact | last_number | regex | script
+#   hint     optional note shown to a human, never sent to the model
+#
+# Grading rules
+#   last_number  the LAST integer appearing anywhere in the reply must equal
+#                `answer`. Models wrap the conclusion in prose, so position is
+#                used rather than a pattern. This is the most robust rule for
+#                numeric answers and is what most questions should use.
+#   exact        the reply, normalised (whitespace collapsed, an "answer:"
+#                label stripped, trailing punctuation dropped, case folded),
+#                must equal `answer`. A multi-line reply passes when its last
+#                non-empty line is the answer.
+#   regex        `answer` (or a separate `pattern`) is compiled and searched;
+#                a capture group, when present, is the extracted value.
+#   script       a short Python expression evaluated with `text` bound to the
+#                reply. It must return True/False, or a value compared against
+#                `answer`.
+#
+# Keep prompts self-contained and answerable without tools: a session under test
+# is told not to use any.
+
+version: 1
+
+defaults:
+  # Sent before every question. The default tells the session to answer from its
+  # own knowledge, which is the point of the check.
+  prefix: >-
+    Do not use any tools. Do not read any files. Answer with the final answer only.
+
+questions:
+  # --- numeric answers, graded on the last number in the reply ---------------
+
+  - id: digit-seven-count
+    prompt: >-
+      Write the integers from 1 to 100 in order. How many times does the digit 7
+      appear in what you wrote?
+    answer: 20
+    match: last_number
+    hint: >-
+      7 appears 10 times in the tens place (70-79) and 10 times in the units
+      place (7, 17, ... 97), and 77 is counted once in each, so 20.
+
+  - id: consecutive-sum-87
+    prompt: >-
+      Three consecutive integers add up to 87. What is the largest of the three?
+    answer: 30
+    match: last_number
+    hint: 28 + 29 + 30 = 87.
+
+  - id: lighter-ball-weighings
+    prompt: >-
+      You have 27 identical-looking balls. Exactly one is lighter than the
+      others. Using a balance scale, what is the fewest number of weighings that
+      guarantees finding the lighter ball?
+    answer: 3
+    match: last_number
+    hint: >-
+      Each weighing has three outcomes, so three weighings separate 3^3 = 27
+      possibilities.
+
+  - id: two-colour-draws
+    prompt: >-
+      A basket holds 5 red balls and 7 blue balls. You take balls out without
+      looking. What is the smallest number you must take to be certain of having
+      at least one ball of each colour?
+    answer: 8
+    match: last_number
+    hint: >-
+      The worst case is drawing all 7 blue balls first, so 8 guarantees a red.
+
+  # --- text answer, graded exactly -------------------------------------------
+
+  - id: string-transformations
+    prompt: >-
+      Start with the string "abcde". Reverse it. Append the letter f to the end.
+      Then delete the second character of the result. What is the final string?
+    answer: ecbaf
+    match: exact
+    hint: >-
+      abcde -> edcba -> edcbaf -> ecbaf (the second character, d, is removed).
+
+  # --- a regex grader, for answers that come with fixed formatting -----------
+
+  - id: formatted-report-line
+    prompt: >-
+      Reply with exactly one line in this form, substituting your own values:
+      status=OK retries=0. Use zero retries.
+    answer: null
+    match: regex
+    pattern: '^status=OK retries=(\d+)$'
+    hint: >-
+      Demonstrates a regex grader. The capture group is the extracted value; a
+      separate `answer` would be compared against it.
+
+  # --- a script grader, for anything the other three cannot express ----------
+  #
+  # The script is multi-line, so it uses `|` (literal) rather than `>` (folded):
+  # a folded scalar joins the lines with spaces, which turns two statements into
+  # one invalid line. `custos questions validate` catches that mistake.
+
+  - id: three-distinct-words
+    prompt: >-
+      Reply with exactly three words, each different from the others and none of
+      them a number.
+    answer: null
+    match: script
+    script: |
+      words = text.split()
+      result = (len(words) == 3
+                and len(set(w.lower() for w in words)) == 3
+                and not any(w.isdigit() for w in words))
+    hint: >-
+      Demonstrates a script grader. The script is evaluated with `text` bound to
+      the reply and must leave a boolean in `result` (or be a bare expression).

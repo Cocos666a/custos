@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "adapters": {
+    "claude_code": {
+      "enabled": true,
+      "projects_dir": "~/.claude/projects",
+      "window": 200000,
+      "rotate_mode": "assisted",
+      "rotate_timeout": 900,
+      "spawn_args": [
+        "--permission-mode",
+        "acceptEdits"
+      ],
+      "continuation_prompt_file": null,
+      "rotate_cwd": null
+    },
+    "codex": {
+      "enabled": true,
+      "sessions_dir": "~/.codex/sessions",
+      "archived_dir": "~/.codex/archived_sessions",
+      "window": 200000,
+      "rotate_mode": "assisted",
+      "rotate_timeout": 900,
+      "spawn_args": [
+        "--sandbox",
+        "workspace-write"
+      ],
+      "continuation_prompt_file": null,
+      "rotate_cwd": null
+    },
+    "opencode": {
+      "enabled": true,
+      "db_path": "~/.local/share/opencode/opencode.db",
+      "storage_dir": "~/.local/share/opencode/storage",
+      "window": 200000
+    },
+    "pi": {
+      "enabled": true,
+      "sessions_dir": "~/.pi/agent/sessions",
+      "window": 200000
+    },
+    "generic": {
+      "enabled": false,
+      "sessions": []
+    }
+  },
+  "thresholds": {
+    "baseline_tokens": 350000,
+    "baseline_percent": null,
+    "warn_factor": 0.9,
+    "rotate_factor": 0.93
+  },
+  "monitor": {
+    "interval_minutes": 5,
+    "activity_quiet_minutes": 10,
+    "fire_budget_seconds": 900,
+    "min_retry_gap_seconds": 120,
+    "pending_max_age_days": 3
+  },
+  "rotation": {
+    "handover_dir": null,
+    "mode": "assisted",
+    "modes": {},
+    "idempotency_hours": 6
+  },
+  "gate": {
+    "enabled": true,
+    "questions": "questions.json",
+    "mode": "random",
+    "attempt_limit": 5,
+    "attempt_interval_seconds": 60,
+    "timeout_seconds": 240,
+    "alert_after_failures": 5,
+    "alert_after_invalid": 5,
+    "alert_repeat_seconds": 3600,
+    "prefix": "Do not use any tools. Do not read any files. Answer with the final answer only."
+  },
+  "notify": {
+    "stdout": true,
+    "webhook_url": null,
+    "webhook_timeout_seconds": 10
+  },
+  "state": {
+    "ledger_max_age_days": 45,
+    "keep_readings_days": 7
+  }
+}

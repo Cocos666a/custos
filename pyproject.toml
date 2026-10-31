@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "custos"
+version = "0.1.0"
+description = "Automatic context-window monitoring & session rotation for AI coding agents."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "custos contributors" }]
+keywords = [
+    "ai-agents",
+    "context-window",
+    "session-management",
+    "claude-code",
+    "codex",
+    "opencode",
+    "cli",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Utilities",
+]
+dependencies = []
+
+[project.optional-dependencies]
+yaml = ["PyYAML>=5.1"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+custos = "custos.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Cocos666a/custos"
+Issues = "https://github.com/Cocos666a/custos/issues"
+
+[tool.setuptools.packages.find]
+include = ["custos*"]
+
+[tool.setuptools.package-data]
+custos = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

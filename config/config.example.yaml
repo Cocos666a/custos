@@ -1,0 +1,289 @@
+# custos configuration (full example)
+#
+# Copy this file to your configuration directory as `config.yaml`:
+#
+#   mkdir -p ~/.config/custos
+#   cp config/config.example.yaml ~/.config/custos/config.yaml
+#
+# The directory is `$CUSTOS_CONFIG_DIR` when that variable is set, otherwise
+# `~/.config/custos`. YAML needs PyYAML (`pip install custos[yaml]`);
+# without it, use `config.json` in the same directory with the same keys, or run
+# on the built-in defaults.
+#
+# Every key is optional. Anything omitted falls back to the default shown here.
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# Adapters: one per agent tool.
+#
+# Each has `enabled` (whether `scan` looks at it), an optional path override,
+# and `window`: the model's context window in tokens. The window is only a
+# fallback -- adapters that can read the window from the tool's own records
+# prefer that value, because a session may switch models.
+# ---------------------------------------------------------------------------
+adapters:
+
+  # Claude Code. Sessions are JSONL transcripts under ~/.claude/projects.
+  #
+  # Rotation keys (the same four exist on `codex` below):
+  #   rotate_mode              assisted (default) writes a handover and asks
+  #                            you to start the next session; full_auto lets
+  #                            the adapter start it with `claude -p`.
+  #   rotate_timeout           seconds allowed for that spawn (default 900).
+  #   spawn_args               extra CLI arguments for the spawn. An explicit
+  #                            list replaces the default, so it can drop an
+  #                            argument as well as add one.
+  #   continuation_prompt_file optional template with {handover} and {session}
+  #                            placeholders; the built-in one only asks the new
+  #                            session to read the handover and recap.
+  #   rotate_cwd               working directory for the new session. Default
+  #                            is the `cwd` recorded in the old transcript.
+  claude_code:
+    enabled: true
+    projects_dir: ~/.claude/projects
+    window: 200000
+    rotate_mode: assisted
+    rotate_timeout: 900
+    spawn_args: ["--permission-mode", "acceptEdits"]
+    continuation_prompt_file: null
+    rotate_cwd: null
+
+  # Codex. Rollout files under ~/.codex/sessions, archived ones under
+  # ~/.codex/archived_sessions.
+  codex:
+    enabled: true
+    sessions_dir: ~/.codex/sessions
+    archived_dir: ~/.codex/archived_sessions
+    window: 200000
+    rotate_mode: assisted
+    rotate_timeout: 900
+    spawn_args: ["--sandbox", "workspace-write"]
+    continuation_prompt_file: null
+    rotate_cwd: null
+
+  # OpenCode. A SQLite database, opened read-only.
+  # `storage_dir` is only used to detect older installs that have no database;
+  # those cannot be read by this adapter.
+  opencode:
+    enabled: true
+    db_path: ~/.local/share/opencode/opencode.db
+    storage_dir: ~/.local/share/opencode/storage
+    window: 200000
+
+  # Pi. Documentation-verified adapter: the paths come from pi.dev docs, and the
+  # usage field names are searched rather than assumed.
+  pi:
+    enabled: true
+    sessions_dir: ~/.pi/agent/sessions
+    window: 200000
+
+  # Configuration-driven adapter for anything else. Disabled by default because
+  # it does nothing until you describe a source.
+  generic:
+    enabled: false
+    sessions: []
+    # Example entries:
+    #
+    # sessions:
+    #   # A file that a tool rewrites with its current usage.
+    #   - id: my-agent-main
+    #     window: 128000
+    #     source:
+    #       type: file
+    #       path: ~/.my-agent/usage.json
+    #
+    #   # A command that prints {"tokens": N, "window": M} and exits.
+    #   - id: my-agent-worker
+    #     source:
+    #       type: command
+    #       cmd: ["my-agent", "usage", "--json"]
+    #       timeout: 15
+    #
+    #   # Optional: a command that performs the rotation itself. It receives the
+    #   # handover path in $CUSTOS_HANDOVER and the session id in
+    #   # $CUSTOS_SESSION, and should print the new session id on success.
+    #   # rotate_cmd: ["my-agent", "new-session"]
+    #
+    # `prompt_cmd` at the generic level runs a one-shot prompt for the gate:
+    # the literal item {prompt} is replaced by the question text.
+    # prompt_cmd: ["my-agent", "ask"]
+
+# ---------------------------------------------------------------------------
+# Thresholds.
+#
+# The baseline is the context size at which the tool considers a session full.
+# Express it one of two ways:
+#
+#   absolute  -- `baseline_tokens`. Use when the tool compacts at a known,
+#                configured point regardless of the model window.
+#   percent   -- `baseline_percent` of the reading's own window. Use when the
+#                same session may run against models with different windows.
+#
+# `baseline_percent` wins when it is set and a window is known. A value above 1
+# is read as a percentage (90), below 1 as a fraction (0.9).
+#
+# The two lines are factors of the baseline, so moving the baseline moves both:
+#   warn   = baseline * warn_factor    -> notify only
+#   rotate = baseline * rotate_factor  -> write a handover and rotate
+# ---------------------------------------------------------------------------
+thresholds:
+  baseline_tokens: 350000
+  baseline_percent: null
+  # Percent-of-window example (uncomment both lines and set the absolute one to
+  # null to use it):
+  # baseline_tokens: null
+  # baseline_percent: 75
+  warn_factor: 0.90
+  rotate_factor: 0.93
+
+# ---------------------------------------------------------------------------
+# Monitoring cadence.
+#
+# `interval_minutes` is how often the scheduled run is expected to fire; the
+# tool throttles itself against it so an extra call does nothing.
+#
+# `activity_quiet_minutes` is a rotation interlock: a reading newer than this
+# means the session is still being used, so rotation waits. Raising it makes the
+# tool more conservative.
+#
+# `fire_budget_seconds` caps one run: the gate stops starting new attempts once
+# the budget is spent, so a slow tool cannot make a scheduled run overlap the
+# next one. Attempts already finished are kept.
+#
+# `min_retry_gap_seconds` is the floor between two gate fires for the same
+# rotation, counted across runs. A five-minute schedule with a two-minute gap
+# retries every five minutes, not twelve times a minute.
+#
+# `pending_max_age_days` drops a rotation event that never got a gate verdict.
+# Long enough for a slow gate to finish, short enough that an abandoned event
+# does not pin the monitor to a session that no longer exists.
+# ---------------------------------------------------------------------------
+monitor:
+  interval_minutes: 5
+  activity_quiet_minutes: 10
+  fire_budget_seconds: 900
+  min_retry_gap_seconds: 120
+  pending_max_age_days: 3
+
+# ---------------------------------------------------------------------------
+# Rotation.
+#
+# `handover_dir` is where snapshots are written; each is a markdown file that a
+# new session reads to recover the work in progress. The default is `handovers`
+# inside this configuration directory; an absolute path works too, and a
+# relative one is resolved inside the configuration directory.
+#
+# `mode` is the default for every adapter:
+#   assisted  -- write the snapshot and tell the user to start a new session
+#   full-auto -- let the adapter start the new session itself, when it can
+#
+# Per-adapter overrides go in `modes`. An adapter that cannot start sessions
+# falls back to assisted regardless of what is configured here, and says so.
+#
+# `idempotency_hours` is how long a session that was already handled is left
+# alone. It expires on purpose: a session only shrinks when the tool compacts it
+# or the user starts a new one, so without an expiry the tool would go quiet on
+# exactly the session it exists to watch.
+# ---------------------------------------------------------------------------
+rotation:
+  handover_dir: null
+  mode: assisted
+  # Per-adapter overrides, for example:
+  #   modes:
+  #     opencode: full-auto
+  #     generic: full-auto
+  modes: {}
+  idempotency_hours: 6
+
+# ---------------------------------------------------------------------------
+# Gate: the intelligence check run against a freshly started session.
+#
+# `enabled` turns the check off without deleting the bank: with it false, a
+# rotation is recorded and the gate is reported as skipped.
+#
+# `questions` is a path relative to this directory, or absolute. The bank is the
+# data that makes the check meaningful -- see config/questions.example.yaml for
+# the format and for how to replace it.
+#
+# `mode` chooses which questions are asked:
+#   random    -- a random selection, different on each rotation
+#   sequence  -- the next questions in bank order, wrapping around
+#   all       -- every question in one prompt, all must pass
+#
+# `prefix` is sent before each question. The default keeps the session from
+# reaching for tools, which is what makes the answer a test of the model rather
+# than of its file access.
+#
+# On failure the question is retried up to `attempt_limit` times within one run,
+# waiting `attempt_interval_seconds` between tries.
+#
+# Alerting counts *across* runs, because the retry interval is usually shorter
+# than the scheduler's. `alert_after_failures` consecutive wrong answers raises
+# the degraded alert; `alert_after_invalid` consecutive unusable answers
+# (timeout, empty output, a tool that errored) raises the infrastructure alert.
+# `alert_repeat_seconds` is how long an alert of the same kind stays quiet after
+# being sent once.
+# ---------------------------------------------------------------------------
+gate:
+  enabled: true
+  questions: questions.yaml
+  mode: random
+  attempt_limit: 5
+  attempt_interval_seconds: 60
+  timeout_seconds: 240
+  alert_after_failures: 5
+  alert_after_invalid: 5
+  alert_repeat_seconds: 3600
+  prefix: >-
+    Do not use any tools. Do not read any files. Answer with the final answer only.
+
+# ---------------------------------------------------------------------------
+# Notification.
+#
+# stdout is the default and is what a scheduler wants: an empty stdout means
+# nothing happened, so cron stays quiet. Set `webhook_url` to also POST a JSON
+# document to an HTTP endpoint:
+#
+#   {"tool": "custos", "ts": 1770000000.0, "messages": [ ... ]}
+#
+# This is the only outbound network request the tool makes, it is off by
+# default, it is skipped in --dry-run, and a failure is logged and ignored --
+# a broken endpoint must not break a rotation.
+# ---------------------------------------------------------------------------
+notify:
+  stdout: true
+  webhook_url: null
+  webhook_timeout_seconds: 10
+
+# ---------------------------------------------------------------------------
+# Retention.
+#
+# `ledger_max_age_days` prunes the idempotency ledger: entries older than this
+# are forgotten, so a session id reused after this long can be acted on again.
+# `keep_readings_days` prunes usage readings pushed by external hooks.
+# ---------------------------------------------------------------------------
+state:
+  ledger_max_age_days: 45
+  keep_readings_days: 7
+
+# ---------------------------------------------------------------------------
+# Pushed readings.
+#
+# `custos report --tool X --session S --tokens N [--window M]` writes a
+# reading into `<config dir>/readings/<tool>/<session>.json`. Use it from a hook
+# or a wrapper script when your tool already knows its own token count; a pushed
+# reading outranks anything parsed from a transcript, and the newest one wins.
+#
+# There is no configuration key for the location: it always lives inside the
+# configuration directory, so pointing CUSTOS_CONFIG_DIR at a scratch
+# directory sandboxes the whole store.
+#
+# ---
+# Kill switch
+#
+# Creating a file named `DISABLE` in this configuration directory stops
+# everything: `monitor` exits silently, and `rotate` refuses unless it is a
+# --dry-run. Remove the file to re-enable. It is the fastest way to stop the
+# tool when a session must not be touched.
+# ---------------------------------------------------------------------------

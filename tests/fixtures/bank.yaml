@@ -1,0 +1,43 @@
+# Synthetic question bank used by the test suite.
+#
+# Every question and answer in this file was written for the tests. Nothing here
+# is drawn from a real deployment's bank, and nothing here is meant to be a good
+# question -- the point is to exercise the four graders and the bank validator,
+# so the entries are deliberately tiny.
+
+version: 1
+
+defaults:
+  prefix: >-
+    Answer with the final answer only.
+
+questions:
+  - id: sum-of-two
+    prompt: What is the sum of 17 and 25?
+    answer: 42
+    match: last_number
+    hint: 17 + 25 = 42.
+
+  - id: count-letters
+    prompt: How many letters are in the word "synthetic"?
+    answer: 9
+    match: last_number
+
+  - id: reverse-word
+    prompt: What is the word "synthetic" spelled backwards?
+    answer: citehtnys
+    match: exact
+
+  - id: fixed-format
+    prompt: 'Reply with exactly one line in this form: status=OK retries=0.'
+    answer: null
+    match: regex
+    pattern: '^status=(OK) retries=(\d+)$'
+
+  - id: three-words
+    prompt: Reply with exactly three words, none of them a number.
+    answer: null
+    match: script
+    script: |
+      words = text.split()
+      result = len(words) == 3 and not any(w.isdigit() for w in words)

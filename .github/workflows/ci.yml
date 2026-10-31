@@ -1,0 +1,113 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test / py${{ matrix.python }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        # 3.9 is the floor the project promises. 3.11 and 3.13 are the versions
+        # most users will actually run, and they are where a `from __future__`
+        # or a typing import would break first.
+        python: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pytest only
+        # Deliberately no runtime dependencies: this job proves the tool works
+        # for someone who installed nothing but the tool itself.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+      - name: Test
+        run: python -m pytest -q -p no:cacheprovider
+
+  optional-dependencies:
+    name: test / py3.9 / all extras
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Install with every optional dependency
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest PyYAML
+      - name: Test
+        # The YAML tests skip when PyYAML is missing; this job is the one that
+        # runs them, so a broken yaml code path cannot hide behind a skip.
+        run: python -m pytest -q -p no:cacheprovider -rs
+      - name: The skip count must be zero here
+        run: |
+          python -m pytest -q -p no:cacheprovider -rs \
+            | tee /tmp/out.txt
+          ! grep -q "^SKIPPED" /tmp/out.txt
+
+  demo:
+    name: demo / no agent installed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Run the built-in demo
+        # The demo is the project's own smoke test: it walks reading ->
+        # threshold -> handover -> rotation -> gate on synthetic sessions.
+        run: python -m custos demo
+      - name: The demo must not write into the configured store
+        run: |
+          export CUSTOS_CONFIG_DIR="$RUNNER_TEMP/custos-ci"
+          mkdir -p "$CUSTOS_CONFIG_DIR"
+          before="$(cd "$CUSTOS_CONFIG_DIR" && find . | sort)"
+          python -m custos demo > /dev/null
+          after="$(cd "$CUSTOS_CONFIG_DIR" && find . | sort)"
+          if [ "$before" != "$after" ]; then
+            echo "the demo wrote into CUSTOS_CONFIG_DIR:"
+            diff <(echo "$before") <(echo "$after")
+            exit 1
+          fi
+
+  static:
+    name: static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Byte-compile every module
+        run: python -m compileall -q custos tests tools
+      - name: Every shell script parses
+        # install.sh had a real defect that a syntax check cannot catch, but a
+        # script that cannot even be parsed should never reach a user.
+        run: |
+          for script in install.sh uninstall.sh tools/acceptance_check.sh; do
+            bash -n "$script" || exit 1
+          done
+      - name: The repository contains no machine-specific strings
+        # Absolute paths from a development machine, internal service names and
+        # credential-shaped tokens must never reach a public commit. The scanner
+        # is the same one used before publishing.
+        run: python tools/sanitize_check.py .
+      - name: The package imports with no optional dependencies
+        run: python -c "import custos, custos.cli, custos.core.gate"
+      - name: Every CLI subcommand answers --help
+        run: |
+          for cmd in scan monitor rotate gate questions report demo doctor; do
+            python -m custos "$cmd" --help > /dev/null
+          done
